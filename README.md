@@ -169,7 +169,8 @@ curl -X POST http://localhost:8899/oauth2/token/revoke \
 
 ```mermaid
 graph TD
-    subgraph ZeroID Server
+    subgraph ZEROID ["🔐 ZeroID"]
+        direction TB
         IR[Identity Registry] --> CS[Credential Service<br/><i>ES256 signing · Policy enforcement · Audit</i>]
         OG[OAuth2 Grants<br/><i>client_credentials · jwt_bearer · api_key<br/>authorization_code · refresh_token</i>] --> CS
         DL[Delegation Engine<br/><i>RFC 8693 token_exchange</i>] --> CS
@@ -189,6 +190,7 @@ graph TD
     SDK([SDK / CLI]) -- "api_key / authorization_code" --> OG
     Downstream([Downstream Services]) -- "verify" --> WPT
 
+    style ZEROID fill:#1a1a2e,stroke:#e94560,stroke-width:3px,color:#fff
     style CS fill:#2d6a4f,color:#fff
     style DB fill:#264653,color:#fff
     style Agent fill:#e76f51,color:#fff
