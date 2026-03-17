@@ -189,7 +189,7 @@ func (a *API) registerAgentOp(ctx context.Context, input *RegisterAgentInput) (*
 
 	createdBy := input.Body.CreatedBy
 	if createdBy == "" {
-		createdBy = internalMiddleware.GetAuthenticatedName(ctx)
+		createdBy = internalMiddleware.GetCallerName(ctx)
 	}
 
 	resp, err := a.agentSvc.RegisterAgent(ctx, service.RegisterAgentRequest{

@@ -70,7 +70,6 @@ curl http://localhost:8899/.well-known/jwks.json
 ```bash
 curl -X POST http://localhost:8899/api/v1/identities \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
@@ -91,7 +90,6 @@ The `external_id` must match the identity's `external_id` from step 1. ZeroID au
 ```bash
 curl -X POST http://localhost:8899/api/v1/oauth/clients \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
@@ -123,7 +121,6 @@ curl -X POST http://localhost:8899/oauth2/token \
 # Register a sub-agent with a public key for jwt_bearer
 curl -X POST http://localhost:8899/api/v1/identities \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
@@ -247,8 +244,6 @@ token:
   max_ttl: 7776000
 
 wimse_domain: "zeroid.dev"
-
-management_api_key: ""  # Set to protect the management API
 ```
 
 Environment variables override YAML (prefix: `ZEROID_`):
@@ -259,7 +254,6 @@ ZEROID_ECDSA_PRIVATE_KEY_PATH=keys/private.pem
 ZEROID_ECDSA_PUBLIC_KEY_PATH=keys/public.pem
 ZEROID_TOKEN_ISSUER=https://auth.example.com
 ZEROID_WIMSE_DOMAIN=example.com
-ZEROID_MANAGEMENT_API_KEY=your-secret-key
 ```
 
 ## Using as a Library
@@ -271,6 +265,7 @@ package main
 
 import (
     "log"
+    "net/http"
     zeroid "github.com/zeroid-dev/zeroid"
     "github.com/zeroid-dev/zeroid/domain"
 )
@@ -279,15 +274,20 @@ func main() {
     cfg, _ := zeroid.LoadConfig("")
     srv, _ := zeroid.NewServer(cfg)
 
-    // Add custom JWT claims
-    srv.OnClaimsIssue(func(claims map[string]any, id *domain.Identity, gt domain.GrantType) {
-        claims["custom_field"] = "custom_value"
+    // Optional: protect admin routes with custom auth
+    srv.AdminAuth(func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            if r.Header.Get("X-Admin-Key") != "my-secret" {
+                http.Error(w, "unauthorized", 401)
+                return
+            }
+            next.ServeHTTP(w, r)
+        })
     })
 
-    // Register a custom grant type
-    srv.RegisterGrant("my_custom_grant", func(ctx context.Context, req map[string]string) (*domain.AccessToken, error) {
-        // Custom authentication logic
-        return &domain.AccessToken{...}, nil
+    // Add custom JWT claims
+    srv.OnClaimsIssue(func(claims map[string]any, id *domain.Identity, gt domain.GrantType) {
+        claims["gateway_id"] = "gw-123"
     })
 
     log.Fatal(srv.Start())
@@ -308,7 +308,7 @@ func main() {
 | POST | `/oauth2/token/introspect` | Token introspection (RFC 7662) |
 | POST | `/oauth2/token/revoke` | Token revocation (RFC 7009) |
 
-### Management Endpoints (Require API Key or Auth Header)
+### Admin Endpoints (/api/v1/* — protect at network layer)
 
 | Method | Path | Description |
 |--------|------|-------------|

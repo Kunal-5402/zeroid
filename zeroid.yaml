@@ -31,8 +31,9 @@ token:
 
 wimse_domain: "zeroid.dev"
 
-# Management API key — set a strong random value for production.
-# management_api_key: ""
+# Admin routes (/api/v1/*) have no built-in auth.
+# In production, protect them at the network layer (reverse proxy, VPN, firewall)
+# or use the AdminAuth hook when embedding ZeroID as a library.
 
 telemetry:
   enabled: false

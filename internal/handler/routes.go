@@ -98,10 +98,10 @@ func (a *API) RegisterPublic(api huma.API) {
 	a.registerOAuthRoutes(api)
 }
 
-// RegisterProtected registers endpoints behind management auth middleware:
+// RegisterAdmin registers admin/management endpoints:
 // identities, credentials, policies, attestation, signals, oauth clients, proof verify.
-// The caller must apply ManagementAuthMiddleware to the chi.Router before calling this.
-func (a *API) RegisterProtected(api huma.API, router chi.Router) {
+// These run on the admin port which is protected at the network layer.
+func (a *API) RegisterAdmin(api huma.API, router chi.Router) {
 	a.registerIdentityRoutes(api)
 	a.registerCredentialPolicyRoutes(api)
 	a.registerCredentialRoutes(api)
@@ -114,6 +114,7 @@ func (a *API) RegisterProtected(api huma.API, router chi.Router) {
 }
 
 // RegisterAgentAuth registers endpoints requiring agent-auth middleware (proof generation).
+// These run on the admin port behind an additional agent JWT verification layer.
 func (a *API) RegisterAgentAuth(api huma.API) {
 	a.registerProofGenerateRoute(api)
 }

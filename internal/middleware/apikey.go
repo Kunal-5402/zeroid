@@ -8,7 +8,7 @@ import (
 )
 
 // TenantContext holds the account and project scope extracted from request headers.
-// It is set by ManagementAuthMiddleware and AgentAuthMiddleware, and retrieved via GetTenant.
+// It is set by TenantContextMiddleware and AgentAuthMiddleware, and retrieved via GetTenant.
 type TenantContext struct {
 	AccountID string
 	ProjectID string

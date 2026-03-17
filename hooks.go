@@ -2,6 +2,7 @@ package zeroid
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/zeroid-dev/zeroid/domain"
 )
@@ -13,3 +14,12 @@ type ClaimsEnricher func(claims map[string]any, identity *domain.Identity, grant
 // GrantHandler implements a custom OAuth2 grant type.
 // Return a non-nil AccessToken on success. Returning an error causes a 400 response.
 type GrantHandler func(ctx context.Context, req map[string]string) (*domain.AccessToken, error)
+
+// AdminAuthMiddleware is an optional middleware applied to the admin API router.
+// When set, every request to the admin port passes through this middleware before
+// reaching any handler. Use this to add authentication (Bearer JWT, mTLS, API key,
+// or any custom scheme) when embedding ZeroID as a library.
+//
+// When nil (the default), the admin API has no authentication — protect it at the
+// network layer (VPN, service mesh, localhost-only binding, firewall rules).
+type AdminAuthMiddleware func(next http.Handler) http.Handler

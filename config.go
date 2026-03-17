@@ -25,9 +25,6 @@ type Config struct {
 
 	// WIMSEDomain is the domain prefix for SPIFFE/WIMSE URIs (e.g. "zeroid.dev").
 	WIMSEDomain string `koanf:"wimse_domain"`
-
-	// ManagementAPIKey authenticates management API calls (replaces internal service secrets).
-	ManagementAPIKey string `koanf:"management_api_key"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -181,9 +178,6 @@ func loadDefaults(k *koanf.Koanf) error {
 		// WIMSE
 		"wimse_domain": "zeroid.dev",
 
-		// Management
-		"management_api_key": "",
-
 		// Telemetry
 		"telemetry.enabled":       false,
 		"telemetry.endpoint":      "localhost:4317",
@@ -234,9 +228,6 @@ func loadEnvVars(k *koanf.Koanf) error {
 
 		// WIMSE
 		"ZEROID_WIMSE_DOMAIN": "wimse_domain",
-
-		// Management
-		"ZEROID_MANAGEMENT_API_KEY": "management_api_key",
 
 		// Telemetry
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "telemetry.endpoint",

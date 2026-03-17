@@ -108,7 +108,7 @@ func (a *API) createAPIKeyOp(ctx context.Context, input *CreateAPIKeyInput) (*Cr
 		return nil, huma.Error401Unauthorized("missing tenant context")
 	}
 
-	createdBy := internalMiddleware.GetAuthenticatedName(ctx)
+	createdBy := internalMiddleware.GetCallerName(ctx)
 
 	resp, err := a.apiKeySvc.CreateKey(ctx, service.CreateAPIKeyRequest{
 		AccountID:     tenant.AccountID,
@@ -166,7 +166,7 @@ func (a *API) revokeAPIKeyOp(ctx context.Context, input *RevokeAPIKeyInput) (*Re
 		return nil, huma.Error401Unauthorized("missing tenant context")
 	}
 
-	revokedBy := internalMiddleware.GetAuthenticatedName(ctx)
+	revokedBy := internalMiddleware.GetCallerName(ctx)
 
 	if err := a.apiKeySvc.RevokeKey(ctx, input.ID, revokedBy, input.Body.Reason); err != nil {
 		return nil, huma.Error500InternalServerError("failed to revoke API key")

@@ -156,7 +156,7 @@ func (a *API) createIdentityOp(ctx context.Context, input *CreateIdentityInput) 
 		return nil, huma.Error400BadRequest("invalid sub_type for the given identity_type")
 	}
 
-	createdBy := internalMiddleware.GetAuthenticatedName(ctx)
+	createdBy := internalMiddleware.GetCallerName(ctx)
 
 	identity, err := a.identitySvc.RegisterIdentity(ctx, service.RegisterIdentityRequest{
 		AccountID:     tenant.AccountID,

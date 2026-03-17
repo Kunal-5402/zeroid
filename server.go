@@ -33,8 +33,14 @@ import (
 	"github.com/zeroid-dev/zeroid/internal/worker"
 )
 
-// Server is the main ZeroID server. It holds all dependencies and exposes
-// the chi router for custom route mounting.
+// Server is the main ZeroID server.
+//
+// Single port, two route groups:
+//   - Public routes (/oauth2/*, /.well-known/*, /health, /ready): No authentication.
+//     These are the token endpoints agents and SDKs call directly.
+//   - Admin routes (/api/v1/*): Identity management, credential policies,
+//     attestation, signals. No built-in auth by default — protect at the
+//     network layer or use the AdminAuth hook.
 type Server struct {
 	cfg    Config
 	db     *bun.DB
@@ -63,6 +69,7 @@ type Server struct {
 	mu              sync.RWMutex
 	customGrants    map[string]GrantHandler
 	claimsEnrichers []ClaimsEnricher
+	adminAuth       AdminAuthMiddleware
 }
 
 // NewServer initializes all ZeroID subsystems: database, migrations, signing keys,
@@ -136,22 +143,11 @@ func NewServer(cfg Config) (*Server, error) {
 	oauthSvc := service.NewOAuthService(credentialSvc, identitySvc, oauthClientSvc, apiKeyRepo, jwksSvc, refreshTokenSvc, service.OAuthServiceConfig{
 		Issuer:      cfg.Token.Issuer,
 		WIMSEDomain: cfg.WIMSEDomain,
-		HMACSecret:  cfg.ManagementAPIKey,
 	})
 	proofSvc := service.NewProofService(jwksSvc, proofRepo, cfg.Token.Issuer)
 	signalSvc := service.NewSignalService(signalRepo, credentialRepo)
 
-	// Build router with middleware stack.
-	r := chi.NewRouter()
-
-	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
-	r.Use(requestValidationMiddleware)
-	r.Use(errorRecoveryMiddleware)
-	r.Use(structuredLoggingMiddleware)
-	r.Use(chimiddleware.Recoverer)
-
-	// Create API handler.
+	// Create shared API handler.
 	apiHandler := handler.NewAPI(
 		identitySvc, credentialSvc, credentialPolicySvc,
 		attestationSvc, proofSvc, oauthSvc, oauthClientSvc,
@@ -159,29 +155,32 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg.Token.Issuer, cfg.Token.BaseURL,
 	)
 
-	// Public routes (no auth).
+	// ── Single router, two route groups ──────────────────────────────────────
+	r := chi.NewRouter()
+
+	// Global middleware.
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(requestValidationMiddleware)
+	r.Use(errorRecoveryMiddleware)
+	r.Use(structuredLoggingMiddleware)
+	r.Use(chimiddleware.Recoverer)
+
+	// Public routes — no auth.
+	// /health, /ready, /.well-known/*, /oauth2/token, /oauth2/token/introspect, /oauth2/token/revoke
 	humaPublic := handler.NewHumaAPI(r)
 	apiHandler.RegisterPublic(humaPublic)
 
-	// Protected routes (management API key auth).
-	managementCfg := internalMiddleware.ManagementAuthConfig{}
-	if cfg.ManagementAPIKey != "" {
-		apiKey := cfg.ManagementAPIKey
-		managementCfg.ValidateKey = func(credential string) (string, bool) {
-			if credential == apiKey {
-				return "management", true
-			}
-			return "", false
-		}
-	}
-
+	// Admin routes — /api/v1/*
+	// No built-in auth. Protected at the network layer or via AdminAuth hook.
 	r.Group(func(r chi.Router) {
-		r.Use(internalMiddleware.ManagementAuthMiddleware(managementCfg))
+		// Tenant context extraction from X-Account-ID / X-Project-ID headers.
+		r.Use(internalMiddleware.TenantContextMiddleware)
 
-		humaProtected := handler.NewHumaAPI(r)
-		apiHandler.RegisterProtected(humaProtected, r)
+		humaAdmin := handler.NewHumaAPI(r)
+		apiHandler.RegisterAdmin(humaAdmin, r)
 
-		// Agent-auth for proof generation.
+		// Agent-auth sub-group for proof generation (requires agent JWT).
 		r.Group(func(r chi.Router) {
 			agentAuthCfg := internalMiddleware.AgentAuthConfig{
 				PublicKey: jwksSvc.PublicKey(),
@@ -195,18 +194,9 @@ func NewServer(cfg Config) (*Server, error) {
 	})
 
 	// Parse timeouts.
-	readTimeout, _ := time.ParseDuration(cfg.Server.ReadTimeout)
-	if readTimeout == 0 {
-		readTimeout = 15 * time.Second
-	}
-	writeTimeout, _ := time.ParseDuration(cfg.Server.WriteTimeout)
-	if writeTimeout == 0 {
-		writeTimeout = 15 * time.Second
-	}
-	idleTimeout, _ := time.ParseDuration(cfg.Server.IdleTimeout)
-	if idleTimeout == 0 {
-		idleTimeout = 60 * time.Second
-	}
+	readTimeout := parseDurationOrDefault(cfg.Server.ReadTimeout, 15*time.Second)
+	writeTimeout := parseDurationOrDefault(cfg.Server.WriteTimeout, 15*time.Second)
+	idleTimeout := parseDurationOrDefault(cfg.Server.IdleTimeout, 60*time.Second)
 
 	srv := &Server{
 		cfg:                 cfg,
@@ -241,15 +231,22 @@ func NewServer(cfg Config) (*Server, error) {
 // Start starts the HTTP server and background workers. It blocks until a
 // SIGINT/SIGTERM is received and then performs graceful shutdown.
 func (s *Server) Start() error {
+	// Apply optional admin auth middleware if set before start.
+	if s.adminAuth != nil {
+		log.Info().Msg("Admin auth middleware configured for /api/v1/* routes")
+	}
+
 	// Start background workers.
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	s.workerCancel = workerCancel
 	go s.cleanupWorker.Run(workerCtx)
 
-	// Start HTTP server in a goroutine.
+	// Start HTTP server.
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info().Str("port", s.cfg.Server.Port).Msg("Starting ZeroID HTTP server")
+		log.Info().Str("port", s.cfg.Server.Port).Msg("Starting ZeroID server")
+		log.Info().Msg("  Public:  /health, /.well-known/*, /oauth2/*")
+		log.Info().Msg("  Admin:   /api/v1/* (no built-in auth — protect at network layer)")
 		if err := s.http.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -267,7 +264,6 @@ func (s *Server) Start() error {
 		log.Info().Msg("Shutdown signal received, shutting down gracefully...")
 	}
 
-	// Graceful shutdown.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.cfg.Server.ShutdownTimeoutSeconds)*time.Second)
 	defer cancel()
 
@@ -316,6 +312,13 @@ func (s *Server) OnClaimsIssue(enricher ClaimsEnricher) {
 	s.claimsEnrichers = append(s.claimsEnrichers, enricher)
 }
 
+// AdminAuth sets an optional authentication middleware for /api/v1/* admin routes.
+// Must be called before Start(). When nil (default), admin routes have no built-in
+// auth — protect them at the network layer (reverse proxy, VPN, firewall).
+func (s *Server) AdminAuth(middleware AdminAuthMiddleware) {
+	s.adminAuth = middleware
+}
+
 // Router returns the chi.Router for custom route mounting.
 func (s *Server) Router() chi.Router {
 	return s.router
@@ -353,6 +356,14 @@ func initDatabase(databaseURL string, maxOpenConns, maxIdleConns int) (*bun.DB, 
 	}
 
 	return db, nil
+}
+
+func parseDurationOrDefault(s string, def time.Duration) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d == 0 {
+		return def
+	}
+	return d
 }
 
 // errorRecoveryMiddleware recovers from panics and returns a 500 JSON error response.
@@ -410,7 +421,6 @@ func requestValidationMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// writeValidationError writes a 400 JSON error for request-validation failures.
 func writeValidationError(w http.ResponseWriter, r *http.Request, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
@@ -430,7 +440,6 @@ func writeValidationError(w http.ResponseWriter, r *http.Request, msg string) {
 }
 
 // structuredLoggingMiddleware emits zerolog request/response log events.
-// Requests taking longer than 1 s are logged at WARN level; 4xx/5xx at ERROR level.
 func structuredLoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
