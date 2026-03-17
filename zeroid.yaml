@@ -1,0 +1,45 @@
+# ZeroID — Sample Configuration for Local Development
+# Override any value via ZEROID_* environment variables.
+
+server:
+  port: "8899"
+  env: development
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout_seconds: 30
+
+database:
+  url: "postgres://zeroid:zeroid@localhost:5432/zeroid?sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+keys:
+  private_key_path: "./keys/private.pem"
+  public_key_path: "./keys/public.pem"
+  key_id: "zeroid-key-1"
+  # RSA keys (optional — needed for api_key grant type)
+  # rsa_private_key_path: "./keys/rsa_private.pem"
+  # rsa_public_key_path: "./keys/rsa_public.pem"
+  # rsa_key_id: "v1"
+
+token:
+  issuer: "https://auth.zeroid.dev"
+  base_url: "http://localhost:8899"
+  default_ttl: 3600
+  max_ttl: 7776000  # 90 days
+
+wimse_domain: "zeroid.dev"
+
+# Management API key — set a strong random value for production.
+# management_api_key: ""
+
+telemetry:
+  enabled: false
+  endpoint: "localhost:4317"
+  insecure: true
+  service_name: "zeroid"
+  sampling_rate: 1.0
+
+logging:
+  level: "debug"

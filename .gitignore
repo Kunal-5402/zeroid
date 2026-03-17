@@ -1,0 +1,41 @@
+# Binaries
+zeroid
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/bin/
+/dist/
+
+# Keys (never commit)
+keys/
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Temporary
+tmp/
+*.tmp
+
+# Environment
+.env
+.env.*
