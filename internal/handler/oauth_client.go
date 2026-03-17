@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/rs/zerolog/log"
 
 	"github.com/zeroid-dev/zeroid/domain"
 	internalMiddleware "github.com/zeroid-dev/zeroid/internal/middleware"
@@ -17,9 +18,9 @@ import (
 type CreateOAuthClientInput struct {
 	Body struct {
 		Name       string   `json:"name" required:"true" minLength:"1" doc:"Client display name"`
+		ExternalID string   `json:"external_id" required:"true" minLength:"1" doc:"Identity external_id — used as client_id and to resolve the linked identity"`
 		GrantTypes []string `json:"grant_types,omitempty" doc:"Permitted OAuth grant types"`
 		Scopes     []string `json:"scopes,omitempty" doc:"Permitted OAuth scopes"`
-		AgentID    string   `json:"agent_id,omitempty" doc:"Agent identity ID to pair with this client"`
 	}
 }
 
@@ -104,11 +105,19 @@ func (a *API) createOAuthClientOp(ctx context.Context, input *CreateOAuthClientI
 		return nil, huma.Error401Unauthorized("missing tenant context")
 	}
 
+	// Resolve identity by external_id within the tenant.
+	identity, err := a.identitySvc.GetIdentityByExternalID(ctx, input.Body.ExternalID, tenant.AccountID, tenant.ProjectID)
+	if err != nil {
+		return nil, huma.Error404NotFound("no identity found with external_id: " + input.Body.ExternalID)
+	}
+
 	client, plainSecret, err := a.oauthClientSvc.RegisterClient(
 		ctx, tenant.AccountID, tenant.ProjectID,
-		input.Body.Name, input.Body.GrantTypes, input.Body.Scopes, input.Body.AgentID,
+		input.Body.Name, input.Body.GrantTypes, input.Body.Scopes,
+		identity.ExternalID, identity.ID,
 	)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to register oauth client")
 		return nil, huma.Error500InternalServerError("failed to register oauth client")
 	}
 

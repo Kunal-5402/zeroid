@@ -70,6 +70,7 @@ curl http://localhost:8899/.well-known/jwks.json
 ```bash
 curl -X POST http://localhost:8899/api/v1/identities \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
@@ -78,25 +79,28 @@ curl -X POST http://localhost:8899/api/v1/identities \
     "identity_type": "agent",
     "sub_type": "orchestrator",
     "trust_level": "first_party",
+    "owner_user_id": "user-1",
     "allowed_scopes": ["data:read", "data:write", "agents:delegate"]
   }'
 ```
 
 ### 2. Register an OAuth2 Client
 
+The `external_id` must match the identity's `external_id` from step 1. ZeroID auto-generates a secure `client_secret` — save it, it's shown only once.
+
 ```bash
 curl -X POST http://localhost:8899/api/v1/oauth/clients \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
     "name": "Orchestrator Client",
-    "client_id": "orchestrator-1",
-    "client_secret": "super-secret",
-    "identity_id": "<identity_id_from_step_1>",
+    "external_id": "orchestrator-1",
     "grant_types": ["client_credentials", "token_exchange"],
     "scopes": ["data:read", "data:write", "agents:delegate"]
   }'
+# Returns: {"client": {"client_id": "orchestrator-1", ...}, "client_secret": "<save-this>"}
 ```
 
 ### 3. Get an Agent Token (client_credentials)
@@ -107,7 +111,7 @@ curl -X POST http://localhost:8899/oauth2/token \
   -d '{
     "grant_type": "client_credentials",
     "client_id": "orchestrator-1",
-    "client_secret": "super-secret",
+    "client_secret": "<client_secret_from_step_2>",
     "scope": "data:read data:write"
   }'
 # Returns: {"access_token": "eyJ...", "token_type": "Bearer", "expires_in": 3600}
@@ -119,9 +123,11 @@ curl -X POST http://localhost:8899/oauth2/token \
 # Register a sub-agent with a public key for jwt_bearer
 curl -X POST http://localhost:8899/api/v1/identities \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: dev" \
   -H "X-Account-ID: acme" \
   -H "X-Project-ID: prod" \
   -d '{
+    "owner_user_id": "user-1",
     "external_id": "data-fetcher",
     "name": "Data Fetcher",
     "identity_type": "agent",

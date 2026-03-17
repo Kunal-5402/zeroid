@@ -35,25 +35,17 @@ func NewOAuthClientService(repo *postgres.OAuthClientRepository) *OAuthClientSer
 // RegisterClient creates a new OAuth2 client, hashing the secret with bcrypt.
 // Returns the created client with the plain-text secret (only shown once).
 //
-// If agentID is non-empty, it is used directly as the client_id so that the
-// client can be paired with an agent identity that has the same agent_id.
-// Otherwise a cryptographically random client_id is generated.
-func (s *OAuthClientService) RegisterClient(ctx context.Context, accountID, projectID, name string, grantTypes, scopes []string, agentID ...string) (*domain.OAuthClient, string, error) {
+// externalID is used as the client_id (must match the identity's external_id
+// so client_credentials grant can resolve the identity). identityID is the
+// identity UUID to link to. Both are required.
+func (s *OAuthClientService) RegisterClient(ctx context.Context, accountID, projectID, name string, grantTypes, scopes []string, externalID, identityID string) (*domain.OAuthClient, string, error) {
 	if accountID == "" || projectID == "" || name == "" {
 		return nil, "", fmt.Errorf("accountID, projectID, and name are required")
 	}
-
-	// Use caller-supplied agent_id as client_id, or generate a random one.
-	var clientID string
-	var err error
-	if len(agentID) > 0 && agentID[0] != "" {
-		clientID = agentID[0]
-	} else {
-		clientID, err = generateSecureToken(16)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to generate client_id: %w", err)
-		}
+	if externalID == "" || identityID == "" {
+		return nil, "", fmt.Errorf("externalID and identityID are required")
 	}
+
 	plainSecret, err := generateSecureToken(32)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate client_secret: %w", err)
@@ -76,10 +68,12 @@ func (s *OAuthClientService) RegisterClient(ctx context.Context, accountID, proj
 		ID:           uuid.New().String(),
 		AccountID:    accountID,
 		ProjectID:    projectID,
-		ClientID:     clientID,
+		ClientID:     externalID,
 		ClientSecret: string(hashed),
 		Name:         name,
+		IdentityID:   identityID,
 		GrantTypes:   grantTypes,
+		RedirectURIs: []string{},
 		Scopes:       scopes,
 		IsActive:     true,
 		CreatedAt:    now,
@@ -91,7 +85,7 @@ func (s *OAuthClientService) RegisterClient(ctx context.Context, accountID, proj
 	}
 
 	log.Info().
-		Str("client_id", clientID).
+		Str("client_id", externalID).
 		Str("account_id", accountID).
 		Str("project_id", projectID).
 		Msg("OAuth2 client registered")

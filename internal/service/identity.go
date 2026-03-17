@@ -135,6 +135,11 @@ func (s *IdentityService) GetIdentity(ctx context.Context, id, accountID, projec
 	return s.repo.GetByID(ctx, id, accountID, projectID)
 }
 
+// GetIdentityByExternalID retrieves an identity by its external_id within a tenant.
+func (s *IdentityService) GetIdentityByExternalID(ctx context.Context, externalID, accountID, projectID string) (*domain.Identity, error) {
+	return s.repo.GetByExternalID(ctx, externalID, accountID, projectID)
+}
+
 // ListIdentities returns identities for a tenant, optionally filtered by identity_type and label.
 func (s *IdentityService) ListIdentities(ctx context.Context, accountID, projectID, identityType, label string) ([]*domain.Identity, error) {
 	return s.repo.List(ctx, accountID, projectID, identityType, label)
