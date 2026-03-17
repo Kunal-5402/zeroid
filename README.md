@@ -164,33 +164,43 @@ curl -X POST http://localhost:8899/oauth2/token/revoke \
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────┐
-│                     ZeroID Server                     │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────────┐  │
-│  │ Identity  │  │  OAuth2  │  │    Delegation     │  │
-│  │ Registry  │  │  Grants  │  │  (RFC 8693)       │  │
-│  └────┬─────┘  └────┬─────┘  └────────┬──────────┘  │
-│       │              │                 │              │
-│  ┌────┴──────────────┴─────────────────┴──────────┐  │
-│  │              Credential Service                 │  │
-│  │  ES256 signing · Policy enforcement · Audit     │  │
-│  └────────────────────┬───────────────────────────┘  │
-│                       │                              │
-│  ┌────────────────────┴───────────────────────────┐  │
-│  │  Attestation │ CAE Signals │ WIMSE Proof Tokens │  │
-│  └────────────────────────────────────────────────┘  │
-│                       │                              │
-│              ┌────────┴────────┐                     │
-│              │   PostgreSQL    │                     │
-│              └─────────────────┘                     │
-└──────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph ZeroID Server
+        IR[Identity Registry] --> CS[Credential Service<br/><i>ES256 signing · Policy enforcement · Audit</i>]
+        OG[OAuth2 Grants<br/><i>client_credentials · jwt_bearer · api_key<br/>authorization_code · refresh_token</i>] --> CS
+        DL[Delegation Engine<br/><i>RFC 8693 token_exchange</i>] --> CS
 
-Tokens issued:
-  Agent (NHI):  ES256 JWT, 1hr TTL, WIMSE URI subject
-  SDK/CLI:      RS256 JWT (optional), configurable TTL
+        CS --> AT[Attestation]
+        CS --> CAE[CAE Signals<br/><i>Real-time revocation</i>]
+        CS --> WPT[WIMSE Proof Tokens<br/><i>Single-use, nonce-bound</i>]
+
+        AT --> DB[(PostgreSQL)]
+        CAE --> DB
+        WPT --> DB
+        CS --> DB
+    end
+
+    Agent([AI Agent]) -- "jwt_bearer / client_credentials" --> OG
+    Orchestrator([Orchestrator]) -- "token_exchange" --> DL
+    SDK([SDK / CLI]) -- "api_key / authorization_code" --> OG
+    Downstream([Downstream Services]) -- "verify" --> WPT
+
+    style CS fill:#2d6a4f,color:#fff
+    style DB fill:#264653,color:#fff
+    style Agent fill:#e76f51,color:#fff
+    style Orchestrator fill:#e76f51,color:#fff
+    style SDK fill:#e9c46a,color:#000
+    style Downstream fill:#457b9d,color:#fff
 ```
+
+**Tokens issued:**
+
+| Flow | Algorithm | Default TTL | Subject |
+|------|-----------|-------------|---------|
+| Agent (NHI) | ES256 | 1 hour | WIMSE URI (`spiffe://{domain}/...`) |
+| SDK / CLI | RS256 (optional) | Configurable | User ID or WIMSE URI |
+| Delegated | ES256 | 1 hour | Sub-agent WIMSE URI + `act` claim |
 
 ## Standards
 
