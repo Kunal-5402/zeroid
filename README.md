@@ -7,11 +7,23 @@
     OAuth 2.1 &middot; WIMSE/SPIFFE &middot; RFC 8693 delegation &middot; Developer SDKs
   </p>
   <p align="center">
+    <a href="https://github.com/highflame-ai/zeroid/actions/workflows/ci.yml">
+      <img src="https://github.com/highflame-ai/zeroid/actions/workflows/ci.yml/badge.svg" alt="CI" />
+    </a>
+    <a href="https://goreportcard.com/report/github.com/highflame-ai/zeroid">
+      <img src="https://goreportcard.com/badge/github.com/highflame-ai/zeroid" alt="Go Report Card" />
+    </a>
+    <a href="https://github.com/highflame-ai/zeroid/releases">
+      <img src="https://img.shields.io/github/v/release/highflame-ai/zeroid?color=green" alt="Latest Release" />
+    </a>
+    <a href="https://pkg.go.dev/github.com/highflame-ai/zeroid">
+      <img src="https://pkg.go.dev/badge/github.com/highflame-ai/zeroid.svg" alt="Go Reference" />
+    </a>
     <a href="https://github.com/highflame-ai/zeroid/blob/main/LICENSE">
-      <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" />
+      <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
     </a>
     <a href="https://discord.gg/zeroid">
-      <img src="https://img.shields.io/discord/zeroid?label=discord" />
+      <img src="https://img.shields.io/discord/zeroid?label=discord" alt="Discord" />
     </a>
   </p>
 </p>
