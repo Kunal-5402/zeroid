@@ -257,19 +257,13 @@ Common deployment patterns and how ZeroID handles them:
 
 A security monitoring agent detects an anomaly and delegates to an investigation agent, which delegates to a remediation agent. `CredentialPolicy` caps `delegation_depth` at 2 — the remediation agent cannot delegate further. Every token and audit log entry carries the full chain, traceable back to the org policy that authorized it.
 
-→ See [docs/patterns/autonomous-chain.md](docs/patterns/autonomous-chain.md)
-
 ### Human authorizes once, agent runs autonomously
 
 A developer registers a coding agent with `created_by="dev@company.com"`. The agent gets its own credential and operates autonomously — the developer is out of the auth flow after registration. Every token carries `zeroid_user_id: dev@company.com`, so PR metadata, audit logs, and introspection all surface the human who authorized the chain.
 
-→ See [docs/patterns/human-delegation.md](docs/patterns/human-delegation.md)
-
 ### MCP tool boundary
 
 An MCP server requires a ZeroID token before executing any tool. It verifies the calling agent's identity, scope, and delegation depth at the boundary — before any action runs.
-
-→ See [docs/patterns/mcp-verification.md](docs/patterns/mcp-verification.md)
 
 ---
 
