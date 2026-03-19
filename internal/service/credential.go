@@ -8,12 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/rs/zerolog/log"
 
-	"github.com/zeroid-dev/zeroid/domain"
-	"github.com/zeroid-dev/zeroid/internal/signing"
-	"github.com/zeroid-dev/zeroid/internal/store/postgres"
+	"github.com/highflame-ai/zeroid/domain"
+	"github.com/highflame-ai/zeroid/internal/signing"
+	"github.com/highflame-ai/zeroid/internal/store/postgres"
 )
 
 // CredentialService handles JWT issuance, rotation, and revocation.
@@ -72,8 +73,14 @@ type IssueRequest struct {
 	// ApplicationID is the optional application scope (set when API key is linked to an application).
 	ApplicationID string
 	// SubjectOverride, when non-empty, replaces the default WIMSE URI as the JWT "sub" claim.
-	// Used by api_key grant to set sub = user ID (created_by) instead of WIMSE URI.
+	// Used for external principal exchange (sub = external user ID) and authorization_code
+	// (sub = authenticated user ID). For NHI grants, leave empty to use the WIMSE URI.
 	SubjectOverride string
+	// ActingUserID is the end user the principal is acting on behalf of (runtime, per-request).
+	// Distinct from the identity owner (Identity.OwnerUserID) who registered the agent.
+	// For NHI tokens where an agent serves a specific user, this populates the RFC 8693 "act" claim.
+	// For human tokens, this is typically empty (the user IS the principal, not acting for someone else).
+	ActingUserID string
 	// UserEmail and UserName are set for human user tokens.
 	UserEmail string
 	UserName  string
@@ -167,6 +174,13 @@ func (s *CredentialService) IssueCredential(ctx context.Context, req IssueReques
 	_ = token.Set("trust_level", string(req.Identity.TrustLevel))
 	_ = token.Set("status", string(req.Identity.Status))
 
+	// Owner — the user who registered/owns this identity. Distinct from:
+	//   - sub (the principal itself)
+	//   - act.sub (the end user the principal is acting on behalf of)
+	if req.Identity.OwnerUserID != "" {
+		_ = token.Set("owner_user_id", req.Identity.OwnerUserID)
+	}
+
 	if req.DelegationDepth > 0 {
 		_ = token.Set("delegation_depth", req.DelegationDepth)
 	}
@@ -211,21 +225,28 @@ func (s *CredentialService) IssueCredential(ctx context.Context, req IssueReques
 		_ = token.Set(k, v)
 	}
 
-	// For delegated credentials (token_exchange), embed the RFC 8693 "act" claim
-	// identifying the orchestrator that granted authority. The "sub" claim remains
-	// the actor (sub-agent), so downstream services and authz check the sub-agent's
-	// permissions while the audit trail traces back to the delegating orchestrator.
+	// RFC 8693 "act" claim — two use cases:
+	//   1. NHI delegation: orchestrator delegates to sub-agent. act.sub = orchestrator WIMSE URI.
+	//   2. User context: NHI acts on behalf of an end user. act.sub = user ID.
+	// These are mutually exclusive per token — a delegated token already has act from the orchestrator.
 	if req.DelegatedBy != "" {
 		_ = token.Set("act", map[string]string{"sub": req.DelegatedBy})
+	} else if req.ActingUserID != "" {
+		_ = token.Set("act", map[string]string{"sub": req.ActingUserID})
 	}
 
 	// Sign: RS256 for api_key grant (compatible), ES256 for all agent/NHI flows.
+	// kid is included in the JWS header so verifiers can select the correct key from JWKS.
 	var signed []byte
 	var signErr error
 	if req.UseRS256 && s.jwksSvc.HasRSAKeys() {
-		signed, signErr = jwt.Sign(token, jwt.WithKey(jwa.RS256, s.jwksSvc.RSAPrivateKey()))
+		hdrs := jws.NewHeaders()
+		_ = hdrs.Set(jws.KeyIDKey, s.jwksSvc.RSAKeyID())
+		signed, signErr = jwt.Sign(token, jwt.WithKey(jwa.RS256, s.jwksSvc.RSAPrivateKey(), jws.WithProtectedHeaders(hdrs)))
 	} else {
-		signed, signErr = jwt.Sign(token, jwt.WithKey(jwa.ES256, s.jwksSvc.PrivateKey()))
+		hdrs := jws.NewHeaders()
+		_ = hdrs.Set(jws.KeyIDKey, s.jwksSvc.KeyID())
+		signed, signErr = jwt.Sign(token, jwt.WithKey(jwa.ES256, s.jwksSvc.PrivateKey(), jws.WithProtectedHeaders(hdrs)))
 	}
 	if signErr != nil {
 		return nil, nil, fmt.Errorf("failed to sign JWT: %w", signErr)
