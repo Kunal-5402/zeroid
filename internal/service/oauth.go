@@ -43,6 +43,12 @@ type OAuthService struct {
 // CustomGrantHandler implements a custom OAuth2 grant type.
 type CustomGrantHandler func(ctx context.Context, req TokenRequest) (*domain.AccessToken, error)
 
+// Default token TTLs (used when per-client TTL is not configured).
+const (
+	defaultAccessTokenTTLWithRefresh = 3600          // 1 hour when refresh tokens provide continuity
+	defaultAccessTokenTTLNoRefresh   = 90 * 24 * 3600 // 90 days for clients without refresh_token grant
+)
+
 // reservedClaims are standard JWT and ZeroID claims that additional_claims cannot override.
 var reservedClaims = map[string]bool{
 	// RFC 7519 registered claims
@@ -664,9 +670,8 @@ func (s *OAuthService) authorizationCode(ctx context.Context, req TokenRequest) 
 		return nil, oauthBadRequest("invalid_grant", "PKCE verification failed")
 	}
 
-	// Derive token policy from registered grant_types: if the client is
-	// authorised for refresh_token, issue short-lived access tokens (the
-	// refresh token provides continuity). Otherwise issue long-lived tokens.
+	// Determine access token TTL.
+	// Priority: per-client config > grant-type-based default > server default.
 	hasRefreshGrant := false
 	for _, g := range oauthClient.GrantTypes {
 		if g == string(domain.GrantTypeRefreshToken) {
@@ -675,9 +680,13 @@ func (s *OAuthService) authorizationCode(ctx context.Context, req TokenRequest) 
 		}
 	}
 
-	ttl := 90 * 24 * 3600 // 90 days for clients without refresh_token grant
-	if hasRefreshGrant {
-		ttl = 3600 // 1 hour when refresh tokens provide continuity
+	ttl := oauthClient.AccessTokenTTL
+	if ttl <= 0 {
+		// No per-client TTL — use grant-type-based defaults.
+		ttl = defaultAccessTokenTTLNoRefresh
+		if hasRefreshGrant {
+			ttl = defaultAccessTokenTTLWithRefresh
+		}
 	}
 
 	// Auth code JWT is self-contained — tenant context comes from the auth code.
@@ -712,6 +721,7 @@ func (s *OAuthService) authorizationCode(ctx context.Context, req TokenRequest) 
 			ProjectID: authCode.ProjectID,
 			UserID:    authCode.UserID,
 			Scopes:    strings.Join(authCode.Scopes, " "),
+			TTL:       oauthClient.RefreshTokenTTL,
 		})
 		if rtErr != nil {
 			log.Error().Err(rtErr).Msg("Failed to issue refresh token — returning access token only")
@@ -734,7 +744,20 @@ func (s *OAuthService) refreshToken(ctx context.Context, req TokenRequest) (*dom
 		return nil, oauthServerError("refresh tokens not configured", nil)
 	}
 
-	oldToken, newRT, err := s.refreshTokenSvc.RotateRefreshToken(ctx, req.RefreshTokenStr)
+	// Look up client to get per-client TTL settings.
+	var accessTTL, refreshTokenTTL int
+	if oauthClient, err := s.oauthClientSvc.GetClientByClientID(ctx, req.ClientID); err == nil {
+		accessTTL = oauthClient.AccessTokenTTL
+		refreshTokenTTL = oauthClient.RefreshTokenTTL
+	} else {
+		log.Warn().Err(err).Str("client_id", req.ClientID).Msg("failed to get oauth client for TTL override, using defaults")
+	}
+
+	if accessTTL <= 0 {
+		accessTTL = defaultAccessTokenTTLWithRefresh
+	}
+
+	oldToken, newRT, err := s.refreshTokenSvc.RotateRefreshToken(ctx, req.RefreshTokenStr, refreshTokenTTL)
 	if err != nil {
 		return nil, oauthBadRequestCause("invalid_grant", "invalid or expired refresh token", err)
 	}
@@ -755,7 +778,7 @@ func (s *OAuthService) refreshToken(ctx context.Context, req TokenRequest) (*dom
 		UseRS256:        true,
 		SubjectOverride: oldToken.UserID,
 		ApplicationID:   oldToken.ClientID,
-		TTL:             3600, // 1 hour
+		TTL:             accessTTL,
 	})
 	if err != nil {
 		return nil, err
